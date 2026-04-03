@@ -16,6 +16,8 @@ import { toast } from "sonner";
 import { useAppProxyConfig, useUpdateAppProxyConfig } from "@/lib/query/proxy";
 import { useProvidersQuery } from "@/lib/query/queries";
 
+const PROVIDER_NONE = "__none__" as const;
+
 export interface AutoFailoverConfigPanelProps {
   appType: string;
   disabled?: boolean;
@@ -48,9 +50,9 @@ export function AutoFailoverConfigPanel({
     circuitTimeoutSeconds: "60",
     circuitErrorRateThreshold: "50", // 存储百分比值
     circuitMinRequests: "10",
-    claudeHaikuProviderId: "__none__",
-    claudeSonnetProviderId: "__none__",
-    claudeOpusProviderId: "__none__",
+    claudeHaikuProviderId: PROVIDER_NONE,
+    claudeSonnetProviderId: PROVIDER_NONE,
+    claudeOpusProviderId: PROVIDER_NONE,
   });
 
   useEffect(() => {
@@ -68,9 +70,9 @@ export function AutoFailoverConfigPanel({
           Math.round(config.circuitErrorRateThreshold * 100),
         ),
         circuitMinRequests: String(config.circuitMinRequests),
-        claudeHaikuProviderId: config.claudeHaikuProviderId ?? "__none__",
-        claudeSonnetProviderId: config.claudeSonnetProviderId ?? "__none__",
-        claudeOpusProviderId: config.claudeOpusProviderId ?? "__none__",
+        claudeHaikuProviderId: config.claudeHaikuProviderId ?? PROVIDER_NONE,
+        claudeSonnetProviderId: config.claudeSonnetProviderId ?? PROVIDER_NONE,
+        claudeOpusProviderId: config.claudeOpusProviderId ?? PROVIDER_NONE,
       });
     }
   }, [config]);
@@ -194,15 +196,15 @@ export function AutoFailoverConfigPanel({
         circuitErrorRateThreshold: raw.circuitErrorRateThreshold / 100,
         circuitMinRequests: raw.circuitMinRequests,
         claudeHaikuProviderId:
-          isClaudeApp && formData.claudeHaikuProviderId !== "__none__"
+          isClaudeApp && formData.claudeHaikuProviderId !== PROVIDER_NONE
             ? formData.claudeHaikuProviderId
             : undefined,
         claudeSonnetProviderId:
-          isClaudeApp && formData.claudeSonnetProviderId !== "__none__"
+          isClaudeApp && formData.claudeSonnetProviderId !== PROVIDER_NONE
             ? formData.claudeSonnetProviderId
             : undefined,
         claudeOpusProviderId:
-          isClaudeApp && formData.claudeOpusProviderId !== "__none__"
+          isClaudeApp && formData.claudeOpusProviderId !== PROVIDER_NONE
             ? formData.claudeOpusProviderId
             : undefined,
       });
@@ -232,9 +234,9 @@ export function AutoFailoverConfigPanel({
           Math.round(config.circuitErrorRateThreshold * 100),
         ),
         circuitMinRequests: String(config.circuitMinRequests),
-        claudeHaikuProviderId: config.claudeHaikuProviderId ?? "__none__",
-        claudeSonnetProviderId: config.claudeSonnetProviderId ?? "__none__",
-        claudeOpusProviderId: config.claudeOpusProviderId ?? "__none__",
+        claudeHaikuProviderId: config.claudeHaikuProviderId ?? PROVIDER_NONE,
+        claudeSonnetProviderId: config.claudeSonnetProviderId ?? PROVIDER_NONE,
+        claudeOpusProviderId: config.claudeOpusProviderId ?? PROVIDER_NONE,
       });
     }
   };
@@ -306,7 +308,7 @@ export function AutoFailoverConfigPanel({
                     />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">
+                    <SelectItem value={PROVIDER_NONE}>
                       {t("proxy.autoFailover.useDefaultRouting", "使用默认路由")}
                     </SelectItem>
                     {claudeProviders.map((provider) => (
@@ -343,7 +345,7 @@ export function AutoFailoverConfigPanel({
                     />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">
+                    <SelectItem value={PROVIDER_NONE}>
                       {t("proxy.autoFailover.useDefaultRouting", "使用默认路由")}
                     </SelectItem>
                     {claudeProviders.map((provider) => (
@@ -380,7 +382,7 @@ export function AutoFailoverConfigPanel({
                     />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">
+                    <SelectItem value={PROVIDER_NONE}>
                       {t("proxy.autoFailover.useDefaultRouting", "使用默认路由")}
                     </SelectItem>
                     {claudeProviders.map((provider) => (
