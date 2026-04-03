@@ -134,4 +134,7 @@ export interface AppProxyConfig {
   circuitTimeoutSeconds: number;
   circuitErrorRateThreshold: number;
   circuitMinRequests: number;
+  claudeHaikuProviderId?: string;
+  claudeSonnetProviderId?: string;
+  claudeOpusProviderId?: string;
 }
