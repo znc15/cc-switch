@@ -29,7 +29,9 @@ export function AutoFailoverConfigPanel({
   const { data: config, isLoading, error } = useAppProxyConfig(appType);
   const updateConfig = useUpdateAppProxyConfig();
   const isClaudeApp = appType === "claude";
-  const { data: providersData } = useProvidersQuery("claude");
+  const { data: providersData } = useProvidersQuery("claude", {
+    enabled: isClaudeApp,
+  });
   const claudeProviders = isClaudeApp
     ? Object.values(providersData?.providers ?? {})
     : [];
