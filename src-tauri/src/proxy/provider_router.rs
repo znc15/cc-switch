@@ -350,26 +350,31 @@ fn classify_claude_model_family(model: &str) -> ClaudeModelFamily {
     ClaudeModelFamily::Other
 }
 
-fn default_app_proxy_config(app_type: &str) -> AppProxyConfig {
-    AppProxyConfig {
-        app_type: app_type.to_string(),
-        enabled: false,
-        auto_failover_enabled: false,
-        max_retries: 3,
-        streaming_first_byte_timeout: 60,
-        streaming_idle_timeout: 120,
-        non_streaming_timeout: 600,
-        circuit_failure_threshold: 4,
-        circuit_success_threshold: 2,
-        circuit_timeout_seconds: 60,
-        circuit_error_rate_threshold: 0.6,
-        circuit_min_requests: 10,
-        claude_haiku_provider_id: None,
-        claude_sonnet_provider_id: None,
-        claude_opus_provider_id: None,
+impl AppProxyConfig {
+    fn default_for_app_type(app_type: impl Into<String>) -> Self {
+        Self {
+            app_type: app_type.into(),
+            enabled: false,
+            auto_failover_enabled: false,
+            max_retries: 3,
+            streaming_first_byte_timeout: 60,
+            streaming_idle_timeout: 120,
+            non_streaming_timeout: 600,
+            circuit_failure_threshold: 4,
+            circuit_success_threshold: 2,
+            circuit_timeout_seconds: 60,
+            circuit_error_rate_threshold: 0.6,
+            circuit_min_requests: 10,
+            claude_haiku_provider_id: None,
+            claude_sonnet_provider_id: None,
+            claude_opus_provider_id: None,
+        }
     }
 }
 
+fn default_app_proxy_config(app_type: &str) -> AppProxyConfig {
+    AppProxyConfig::default_for_app_type(app_type)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
