@@ -7,6 +7,7 @@ use crate::database::Database;
 use crate::error::AppError;
 use crate::provider::Provider;
 use crate::proxy::circuit_breaker::{AllowResult, CircuitBreaker, CircuitBreakerConfig};
+use crate::proxy::types::AppProxyConfig;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -35,18 +36,31 @@ impl ProviderRouter {
     /// - 故障转移关闭时：仅返回当前供应商
     /// - 故障转移开启时：仅使用故障转移队列，按队列顺序依次尝试（P1 → P2 → ...）
     pub async fn select_providers(&self, app_type: &str) -> Result<Vec<Provider>, AppError> {
+        self.select_providers_for_model(app_type, None).await
+    }
+
+    pub async fn select_providers_for_model(
+        &self,
+        app_type: &str,
+        request_model: Option<&str>,
+    ) -> Result<Vec<Provider>, AppError> {
         let mut result = Vec::new();
         let mut total_providers = 0usize;
         let mut circuit_open_count = 0usize;
 
         // 检查该应用的自动故障转移开关是否开启（从 proxy_config 表读取）
-        let auto_failover_enabled = match self.db.get_proxy_config_for_app(app_type).await {
-            Ok(config) => config.auto_failover_enabled,
+        let app_config = match self.db.get_proxy_config_for_app(app_type).await {
+            Ok(config) => config,
             Err(e) => {
                 log::error!("[{app_type}] 读取 proxy_config 失败: {e}，默认禁用故障转移");
-                false
+                default_app_proxy_config(app_type)
             }
         };
+        let auto_failover_enabled = app_config.auto_failover_enabled;
+
+        let routed_provider = self
+            .resolve_model_routed_provider(app_type, request_model, &app_config)
+            .await?;
 
         if auto_failover_enabled {
             // 故障转移开启：仅按队列顺序依次尝试（P1 → P2 → ...）
@@ -62,7 +76,28 @@ impl ProviderRouter {
 
             total_providers = ordered_ids.len();
 
+            if let Some(provider) = routed_provider.clone() {
+                if !ordered_ids.iter().any(|provider_id| provider_id == &provider.id) {
+                    total_providers += 1;
+                }
+                let circuit_key = format!("{app_type}:{}", provider.id);
+                let breaker = self.get_or_create_circuit_breaker(&circuit_key).await;
+
+                if breaker.is_available().await {
+                    result.push(provider);
+                } else {
+                    circuit_open_count += 1;
+                }
+            }
+
             for provider_id in ordered_ids {
+                if routed_provider
+                    .as_ref()
+                    .is_some_and(|provider| provider.id == provider_id)
+                {
+                    continue;
+                }
+
                 let Some(provider) = all_providers.get(&provider_id).cloned() else {
                     continue;
                 };
@@ -78,6 +113,11 @@ impl ProviderRouter {
             }
         } else {
             // 故障转移关闭：仅使用当前供应商，跳过熔断器检查
+            if let Some(provider) = routed_provider {
+                result.push(provider);
+                total_providers = 1;
+            }
+
             let current_id = AppType::from_str(app_type)
                 .ok()
                 .and_then(|app_enum| {
@@ -87,10 +127,12 @@ impl ProviderRouter {
                 })
                 .or_else(|| self.db.get_current_provider(app_type).ok().flatten());
 
-            if let Some(current_id) = current_id {
-                if let Some(current) = self.db.get_provider_by_id(&current_id, app_type)? {
-                    total_providers = 1;
-                    result.push(current);
+            if result.is_empty() {
+                total_providers = 1;
+                if let Some(current_id) = current_id {
+                    if let Some(current) = self.db.get_provider_by_id(&current_id, app_type)? {
+                        result.push(current);
+                    }
                 }
             }
         }
@@ -106,6 +148,34 @@ impl ProviderRouter {
         }
 
         Ok(result)
+    }
+
+    async fn resolve_model_routed_provider(
+        &self,
+        app_type: &str,
+        request_model: Option<&str>,
+        app_config: &AppProxyConfig,
+    ) -> Result<Option<Provider>, AppError> {
+        if app_type != "claude" {
+            return Ok(None);
+        }
+
+        let Some(model) = request_model.map(str::trim).filter(|value| !value.is_empty()) else {
+            return Ok(None);
+        };
+
+        let target_provider_id = match classify_claude_model_family(model) {
+            ClaudeModelFamily::Haiku => app_config.claude_haiku_provider_id.as_deref(),
+            ClaudeModelFamily::Sonnet => app_config.claude_sonnet_provider_id.as_deref(),
+            ClaudeModelFamily::Opus => app_config.claude_opus_provider_id.as_deref(),
+            ClaudeModelFamily::Other => None,
+        };
+
+        let Some(provider_id) = target_provider_id else {
+            return Ok(None);
+        };
+
+        self.db.get_provider_by_id(provider_id, app_type)
     }
 
     /// 请求执行前获取熔断器“放行许可”
@@ -255,6 +325,48 @@ impl ProviderRouter {
         breakers.insert(key.to_string(), breaker.clone());
 
         breaker
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClaudeModelFamily {
+    Haiku,
+    Sonnet,
+    Opus,
+    Other,
+}
+
+fn classify_claude_model_family(model: &str) -> ClaudeModelFamily {
+    let normalized = model.trim().to_ascii_lowercase();
+    if normalized.contains("haiku") {
+        return ClaudeModelFamily::Haiku;
+    }
+    if normalized.contains("sonnet") {
+        return ClaudeModelFamily::Sonnet;
+    }
+    if normalized.contains("opus") {
+        return ClaudeModelFamily::Opus;
+    }
+    ClaudeModelFamily::Other
+}
+
+fn default_app_proxy_config(app_type: &str) -> AppProxyConfig {
+    AppProxyConfig {
+        app_type: app_type.to_string(),
+        enabled: false,
+        auto_failover_enabled: false,
+        max_retries: 3,
+        streaming_first_byte_timeout: 60,
+        streaming_idle_timeout: 120,
+        non_streaming_timeout: 600,
+        circuit_failure_threshold: 4,
+        circuit_success_threshold: 2,
+        circuit_timeout_seconds: 60,
+        circuit_error_rate_threshold: 0.6,
+        circuit_min_requests: 10,
+        claude_haiku_provider_id: None,
+        claude_sonnet_provider_id: None,
+        claude_opus_provider_id: None,
     }
 }
 
@@ -508,5 +620,127 @@ mod tests {
         let third = router.allow_provider_request("a", "claude").await;
         assert!(third.allowed);
         assert!(third.used_half_open_permit);
+    }
+
+    #[test]
+    fn test_classify_claude_model_family() {
+        assert_eq!(
+            classify_claude_model_family("claude-haiku-4-5-20251001"),
+            ClaudeModelFamily::Haiku
+        );
+        assert_eq!(
+            classify_claude_model_family("claude-sonnet-4-6"),
+            ClaudeModelFamily::Sonnet
+        );
+        assert_eq!(
+            classify_claude_model_family("claude-opus-4-6"),
+            ClaudeModelFamily::Opus
+        );
+        assert_eq!(
+            classify_claude_model_family("DeepSeek-V3.2"),
+            ClaudeModelFamily::Other
+        );
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_select_providers_for_model_routes_claude_submodels_to_bound_provider() {
+        let _home = TempHome::new();
+        let db = Arc::new(Database::memory().unwrap());
+
+        let provider_haiku = Provider::with_id(
+            "haiku-provider".to_string(),
+            "Haiku Provider".to_string(),
+            json!({}),
+            None,
+        );
+        let provider_default = Provider::with_id(
+            "default-provider".to_string(),
+            "Default Provider".to_string(),
+            json!({}),
+            None,
+        );
+
+        db.save_provider("claude", &provider_haiku).unwrap();
+        db.save_provider("claude", &provider_default).unwrap();
+        db.set_current_provider("claude", "default-provider").unwrap();
+
+        let mut config = db.get_proxy_config_for_app("claude").await.unwrap();
+        config.claude_haiku_provider_id = Some("haiku-provider".to_string());
+        db.update_proxy_config_for_app(config).await.unwrap();
+
+        let router = ProviderRouter::new(db.clone());
+        let providers = router
+            .select_providers_for_model("claude", Some("claude-haiku-4-5-20251001"))
+            .await
+            .unwrap();
+
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].id, "haiku-provider");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_select_providers_for_model_falls_back_when_bound_provider_missing() {
+        let _home = TempHome::new();
+        let db = Arc::new(Database::memory().unwrap());
+
+        let provider_default = Provider::with_id(
+            "default-provider".to_string(),
+            "Default Provider".to_string(),
+            json!({}),
+            None,
+        );
+
+        db.save_provider("claude", &provider_default).unwrap();
+        db.set_current_provider("claude", "default-provider").unwrap();
+
+        let mut config = db.get_proxy_config_for_app("claude").await.unwrap();
+        config.claude_opus_provider_id = Some("missing-provider".to_string());
+        db.update_proxy_config_for_app(config).await.unwrap();
+
+        let router = ProviderRouter::new(db.clone());
+        let providers = router
+            .select_providers_for_model("claude", Some("claude-opus-4-6"))
+            .await
+            .unwrap();
+
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].id, "default-provider");
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn test_select_providers_for_model_keeps_failover_chain_after_routed_provider() {
+        let _home = TempHome::new();
+        let db = Arc::new(Database::memory().unwrap());
+
+        let mut provider_a =
+            Provider::with_id("provider-a".to_string(), "Provider A".to_string(), json!({}), None);
+        provider_a.sort_index = Some(1);
+        let mut provider_b =
+            Provider::with_id("provider-b".to_string(), "Provider B".to_string(), json!({}), None);
+        provider_b.sort_index = Some(2);
+
+        db.save_provider("claude", &provider_a).unwrap();
+        db.save_provider("claude", &provider_b).unwrap();
+        db.set_current_provider("claude", "provider-b").unwrap();
+        db.add_to_failover_queue("claude", "provider-a").unwrap();
+        db.add_to_failover_queue("claude", "provider-b").unwrap();
+
+        let mut config = db.get_proxy_config_for_app("claude").await.unwrap();
+        config.auto_failover_enabled = true;
+        config.claude_haiku_provider_id = Some("provider-b".to_string());
+        db.update_proxy_config_for_app(config).await.unwrap();
+
+        let router = ProviderRouter::new(db.clone());
+        let providers = router
+            .select_providers_for_model("claude", Some("claude-haiku-4-5-20251001"))
+            .await
+            .unwrap();
+
+        assert_eq!(providers.len(), 2);
+        assert_eq!(providers[0].id, "provider-b");
+        assert_eq!(providers[1].id, "provider-a");
     }
 }

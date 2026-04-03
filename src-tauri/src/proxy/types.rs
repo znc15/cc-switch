@@ -192,6 +192,15 @@ pub struct AppProxyConfig {
     pub circuit_error_rate_threshold: f64,
     /// 计算错误率的最小请求数
     pub circuit_min_requests: u32,
+    /// Claude 子模型路由：Haiku 请求改用的 provider id
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claude_haiku_provider_id: Option<String>,
+    /// Claude 子模型路由：Sonnet 请求改用的 provider id
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claude_sonnet_provider_id: Option<String>,
+    /// Claude 子模型路由：Opus 请求改用的 provider id
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub claude_opus_provider_id: Option<String>,
 }
 
 /// 整流器配置

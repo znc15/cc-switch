@@ -289,6 +289,19 @@ fn schema_create_tables_include_pricing_model_columns() {
     let request_model = get_column_info(&conn, "proxy_request_logs", "request_model");
     assert_eq!(request_model.r#type, "TEXT");
     assert_eq!(request_model.notnull, 0);
+
+    let haiku_provider = get_column_info(&conn, "proxy_config", "claude_haiku_provider_id");
+    assert_eq!(haiku_provider.r#type, "TEXT");
+    assert_eq!(haiku_provider.notnull, 0);
+
+    let sonnet_provider =
+        get_column_info(&conn, "proxy_config", "claude_sonnet_provider_id");
+    assert_eq!(sonnet_provider.r#type, "TEXT");
+    assert_eq!(sonnet_provider.notnull, 0);
+
+    let opus_provider = get_column_info(&conn, "proxy_config", "claude_opus_provider_id");
+    assert_eq!(opus_provider.r#type, "TEXT");
+    assert_eq!(opus_provider.notnull, 0);
 }
 
 #[test]

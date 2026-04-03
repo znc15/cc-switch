@@ -3,10 +3,18 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Save, Loader2, Info } from "lucide-react";
 import { toast } from "sonner";
 import { useAppProxyConfig, useUpdateAppProxyConfig } from "@/lib/query/proxy";
+import { useProvidersQuery } from "@/lib/query/queries";
 
 export interface AutoFailoverConfigPanelProps {
   appType: string;
@@ -20,6 +28,11 @@ export function AutoFailoverConfigPanel({
   const { t } = useTranslation();
   const { data: config, isLoading, error } = useAppProxyConfig(appType);
   const updateConfig = useUpdateAppProxyConfig();
+  const isClaudeApp = appType === "claude";
+  const { data: providersData } = useProvidersQuery("claude");
+  const claudeProviders = isClaudeApp
+    ? Object.values(providersData?.providers ?? {})
+    : [];
 
   // 使用字符串状态以支持完全清空数字输入框
   const [formData, setFormData] = useState({
@@ -33,6 +46,9 @@ export function AutoFailoverConfigPanel({
     circuitTimeoutSeconds: "60",
     circuitErrorRateThreshold: "50", // 存储百分比值
     circuitMinRequests: "10",
+    claudeHaikuProviderId: "__none__",
+    claudeSonnetProviderId: "__none__",
+    claudeOpusProviderId: "__none__",
   });
 
   useEffect(() => {
@@ -50,6 +66,9 @@ export function AutoFailoverConfigPanel({
           Math.round(config.circuitErrorRateThreshold * 100),
         ),
         circuitMinRequests: String(config.circuitMinRequests),
+        claudeHaikuProviderId: config.claudeHaikuProviderId ?? "__none__",
+        claudeSonnetProviderId: config.claudeSonnetProviderId ?? "__none__",
+        claudeOpusProviderId: config.claudeOpusProviderId ?? "__none__",
       });
     }
   }, [config]);
@@ -172,6 +191,18 @@ export function AutoFailoverConfigPanel({
         circuitTimeoutSeconds: raw.circuitTimeoutSeconds,
         circuitErrorRateThreshold: raw.circuitErrorRateThreshold / 100,
         circuitMinRequests: raw.circuitMinRequests,
+        claudeHaikuProviderId:
+          isClaudeApp && formData.claudeHaikuProviderId !== "__none__"
+            ? formData.claudeHaikuProviderId
+            : undefined,
+        claudeSonnetProviderId:
+          isClaudeApp && formData.claudeSonnetProviderId !== "__none__"
+            ? formData.claudeSonnetProviderId
+            : undefined,
+        claudeOpusProviderId:
+          isClaudeApp && formData.claudeOpusProviderId !== "__none__"
+            ? formData.claudeOpusProviderId
+            : undefined,
       });
       toast.success(
         t("proxy.autoFailover.configSaved", "自动故障转移配置已保存"),
@@ -199,6 +230,9 @@ export function AutoFailoverConfigPanel({
           Math.round(config.circuitErrorRateThreshold * 100),
         ),
         circuitMinRequests: String(config.circuitMinRequests),
+        claudeHaikuProviderId: config.claudeHaikuProviderId ?? "__none__",
+        claudeSonnetProviderId: config.claudeSonnetProviderId ?? "__none__",
+        claudeOpusProviderId: config.claudeOpusProviderId ?? "__none__",
       });
     }
   };
@@ -231,6 +265,133 @@ export function AutoFailoverConfigPanel({
             )}
           </AlertDescription>
         </Alert>
+
+        {isClaudeApp && (
+          <div className="space-y-4 rounded-lg border border-white/10 bg-muted/30 p-4">
+            <h4 className="text-sm font-semibold">
+              {t("proxy.autoFailover.claudeModelRouting", "Claude 子模型路由")}
+            </h4>
+            <p className="text-xs text-muted-foreground">
+              {t(
+                "proxy.autoFailover.claudeModelRoutingHint",
+                "仅在本地代理接管 Claude 时生效。可将 Haiku、Sonnet、Opus 请求分别转发到不同供应商；留空则继续使用默认选择逻辑。",
+              )}
+            </p>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor={`claude-haiku-provider-${appType}`}>
+                  {t("providerForm.anthropicDefaultHaikuModel", {
+                    defaultValue: "Haiku 默认模型",
+                  })}
+                </Label>
+                <Select
+                  value={formData.claudeHaikuProviderId}
+                  onValueChange={(value) =>
+                    setFormData({
+                      ...formData,
+                      claudeHaikuProviderId: value,
+                    })
+                  }
+                  disabled={isDisabled}
+                >
+                  <SelectTrigger id={`claude-haiku-provider-${appType}`}>
+                    <SelectValue
+                      placeholder={t(
+                        "proxy.autoFailover.useDefaultRouting",
+                        "使用默认路由",
+                      )}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">
+                      {t("proxy.autoFailover.useDefaultRouting", "使用默认路由")}
+                    </SelectItem>
+                    {claudeProviders.map((provider) => (
+                      <SelectItem key={provider.id} value={provider.id}>
+                        {provider.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor={`claude-sonnet-provider-${appType}`}>
+                  {t("providerForm.anthropicDefaultSonnetModel", {
+                    defaultValue: "Sonnet 默认模型",
+                  })}
+                </Label>
+                <Select
+                  value={formData.claudeSonnetProviderId}
+                  onValueChange={(value) =>
+                    setFormData({
+                      ...formData,
+                      claudeSonnetProviderId: value,
+                    })
+                  }
+                  disabled={isDisabled}
+                >
+                  <SelectTrigger id={`claude-sonnet-provider-${appType}`}>
+                    <SelectValue
+                      placeholder={t(
+                        "proxy.autoFailover.useDefaultRouting",
+                        "使用默认路由",
+                      )}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">
+                      {t("proxy.autoFailover.useDefaultRouting", "使用默认路由")}
+                    </SelectItem>
+                    {claudeProviders.map((provider) => (
+                      <SelectItem key={provider.id} value={provider.id}>
+                        {provider.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor={`claude-opus-provider-${appType}`}>
+                  {t("providerForm.anthropicDefaultOpusModel", {
+                    defaultValue: "Opus 默认模型",
+                  })}
+                </Label>
+                <Select
+                  value={formData.claudeOpusProviderId}
+                  onValueChange={(value) =>
+                    setFormData({
+                      ...formData,
+                      claudeOpusProviderId: value,
+                    })
+                  }
+                  disabled={isDisabled}
+                >
+                  <SelectTrigger id={`claude-opus-provider-${appType}`}>
+                    <SelectValue
+                      placeholder={t(
+                        "proxy.autoFailover.useDefaultRouting",
+                        "使用默认路由",
+                      )}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">
+                      {t("proxy.autoFailover.useDefaultRouting", "使用默认路由")}
+                    </SelectItem>
+                    {claudeProviders.map((provider) => (
+                      <SelectItem key={provider.id} value={provider.id}>
+                        {provider.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 重试与超时配置 */}
         <div className="space-y-4 rounded-lg border border-white/10 bg-muted/30 p-4">

@@ -127,6 +127,9 @@ impl Database {
             circuit_failure_threshold INTEGER NOT NULL DEFAULT 4, circuit_success_threshold INTEGER NOT NULL DEFAULT 2,
             circuit_timeout_seconds INTEGER NOT NULL DEFAULT 60, circuit_error_rate_threshold REAL NOT NULL DEFAULT 0.6,
             circuit_min_requests INTEGER NOT NULL DEFAULT 10,
+            claude_haiku_provider_id TEXT,
+            claude_sonnet_provider_id TEXT,
+            claude_opus_provider_id TEXT,
             default_cost_multiplier TEXT NOT NULL DEFAULT '1',
             pricing_model_source TEXT NOT NULL DEFAULT 'response',
             created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -306,6 +309,18 @@ impl Database {
             "ALTER TABLE proxy_config ADD COLUMN non_streaming_timeout INTEGER NOT NULL DEFAULT 600",
             [],
         );
+        let _ = conn.execute(
+            "ALTER TABLE proxy_config ADD COLUMN claude_haiku_provider_id TEXT",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE proxy_config ADD COLUMN claude_sonnet_provider_id TEXT",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE proxy_config ADD COLUMN claude_opus_provider_id TEXT",
+            [],
+        );
 
         // 兼容：若旧版 proxy_config 仍为单例结构（无 app_type），则在启动时直接转换为三行结构
         // 说明：user_version=2 时不会再触发 v1->v2 迁移，但新代码查询依赖 app_type 列。
@@ -392,6 +407,11 @@ impl Database {
                         log::info!("迁移数据库从 v5 到 v6（使用量聚合表 + Copilot 模板类型统一）");
                         Self::migrate_v5_to_v6(conn)?;
                         Self::set_user_version(conn, 6)?;
+                    }
+                    6 => {
+                        log::info!("迁移数据库从 v6 到 v7（Claude 子模型代理路由）");
+                        Self::migrate_v6_to_v7(conn)?;
+                        Self::set_user_version(conn, 7)?;
                     }
                     _ => {
                         return Err(AppError::Database(format!(
@@ -1042,6 +1062,16 @@ impl Database {
         }
 
         log::info!("v5 -> v6 迁移完成：已添加使用量日聚合表，统一 copilot 模板类型");
+        Ok(())
+    }
+
+    /// v6 -> v7 迁移：添加 Claude 子模型代理路由字段
+    fn migrate_v6_to_v7(conn: &Connection) -> Result<(), AppError> {
+        Self::add_column_if_missing(conn, "proxy_config", "claude_haiku_provider_id", "TEXT")?;
+        Self::add_column_if_missing(conn, "proxy_config", "claude_sonnet_provider_id", "TEXT")?;
+        Self::add_column_if_missing(conn, "proxy_config", "claude_opus_provider_id", "TEXT")?;
+
+        log::info!("v6 -> v7 迁移完成：已添加 Claude 子模型代理路由字段");
         Ok(())
     }
 
